@@ -14,7 +14,7 @@ async function bootstrap() {
     .setTitle('API Paggo OCR')
     .setDescription('Documentação da API Paggo OCR')
     .setVersion('1.0')
-    .addBearerAuth()
+    .addBearerAuth() 
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
