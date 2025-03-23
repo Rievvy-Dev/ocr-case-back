@@ -1,11 +1,17 @@
 import { Controller, Post, Body, UseGuards, Get, Req } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @ApiTags('Auth')
 @Controller('auth')
-@ApiTags('Auth') 
+@ApiTags('Auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
@@ -22,7 +28,9 @@ export class AuthController {
       },
     },
   })
-  async register(@Body() data: { email: string; password: string; name?: string }) {
+  async register(
+    @Body() data: { email: string; password: string; name?: string },
+  ) {
     return this.authService.register(data.email, data.password, data.name);
   }
 
@@ -47,5 +55,13 @@ export class AuthController {
   @Get('me')
   async getUser(@Req() req) {
     return this.authService.getUser(req.user.sub);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @Get('validate-token')
+  @UseGuards(JwtAuthGuard)
+  validateToken() {
+    return { valid: true };
   }
 }

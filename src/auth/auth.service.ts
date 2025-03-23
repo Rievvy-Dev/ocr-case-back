@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { JwtService } from '@nestjs/jwt';
@@ -23,6 +23,9 @@ export class AuthService {
 
       return this.createToken(user);
     } catch (error) {
+      if (error.code === "P2002") {
+        throw new Error("Este e-mail já está em uso.");
+      }
       throw new Error("Erro ao registrar usuário.");
     }
   }
@@ -31,8 +34,13 @@ export class AuthService {
     try {
       const user = await this.prisma.user.findUnique({ where: { email } });
 
-      if (!user || !(await bcrypt.compare(password, user.password))) {
-        throw new UnauthorizedException("Credenciais inválidas.");
+      if (!user) {
+        throw new Error("Credenciais inválidas.");
+      }
+
+      const passwordMatches = await bcrypt.compare(password, user.password);
+      if (!passwordMatches) {
+        throw new Error("Credenciais inválidas.");
       }
 
       return this.createToken(user);
@@ -42,16 +50,14 @@ export class AuthService {
   }
 
   async getUser(userId: string) {
-    const user = await this.prisma.user.findUnique({
+    return this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, email: true, name: true, createdAt: true }, // Nunca retorne a senha!
+      select: {
+        id: true,
+        email: true,
+        name: true,
+      },
     });
-
-    if (!user) {
-      throw new UnauthorizedException("Usuário não encontrado.");
-    }
-
-    return user;
   }
 
   private createToken(user: any) {
