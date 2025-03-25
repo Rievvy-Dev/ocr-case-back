@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import { HfInference } from '@huggingface/inference';
 
@@ -23,18 +23,23 @@ export class ChatService {
     return messages;
   }
 
-  async sendMessage(chatId: string, sender: string, content: string) {
-    const chat = await this.prisma.chat.findUnique({
-      where: { id: chatId },
-    });
+  async sendMessage(chatId: string | null, sender: string, content: string, fileId?: string) {
+    let finalChatId = chatId ?? undefined;
 
-    if (!chat) {
-      throw new NotFoundException('Chat não encontrado.');
+    if (!finalChatId) {
+      if (!fileId) {
+        throw new BadRequestException('Para criar um novo chat, um fileId é necessário.');
+      }
+
+      const chat = await this.prisma.chat.create({
+        data: { fileId },
+      });
+      finalChatId = chat.id;
     }
 
     const userMessage = await this.prisma.message.create({
       data: {
-        chatId,
+        chatId: finalChatId,
         sender,
         content,
       },
@@ -50,12 +55,12 @@ export class ChatService {
 
     const chatGptMessage = await this.prisma.message.create({
       data: {
-        chatId,
+        chatId: finalChatId,
         sender: 'assistant',
         content: assistantMessage,
       },
     });
 
-    return { userMessage, chatGptMessage };
+    return { chatId: finalChatId, userMessage, chatGptMessage };
   }
 }

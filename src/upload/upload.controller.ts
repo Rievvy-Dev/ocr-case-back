@@ -1,10 +1,31 @@
-import { Controller, Post, Get, UseGuards, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  UseGuards,
+  Req,
+  UploadedFile,
+  UseInterceptors,
+  NotFoundException,
+  Body,
+  BadRequestException,
+  Res,
+  Delete,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadService } from './upload.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { AuthRequest } from '../types/express';
-import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Express } from 'express';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
+import { Express, Response } from 'express';
 
 @ApiTags('upload')
 @ApiBearerAuth()
@@ -18,12 +39,21 @@ export class UploadController {
   @ApiOperation({ summary: 'Upload a file' })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({ status: 201, description: 'File uploaded successfully' })
-  async uploadFile(@UploadedFile() file: Express.Multer.File, @Req() req: AuthRequest) {
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Req() req: AuthRequest,
+  ) {
     if (!req.user) {
-      throw new Error("User not authenticated.");
+      throw new Error('User not authenticated.');
     }
     const userId = req.user.sub;
-    return this.uploadService.saveFile(file, userId);
+
+    const { file: savedFile, chatId } = await this.uploadService.saveFile(
+      file,
+      userId,
+    );
+
+    return { fileId: savedFile.id, chatId };
   }
 
   @Get()
@@ -32,9 +62,73 @@ export class UploadController {
   @ApiResponse({ status: 200, description: 'List of files' })
   async listFiles(@Req() req: AuthRequest) {
     if (!req.user) {
-      throw new Error("User not authenticated.");
+      throw new Error('User not authenticated.');
     }
     const userId = req.user.sub;
     return this.uploadService.listUserFiles(userId);
+  }
+
+  @Post('file')
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Get file by ID' })
+  @ApiResponse({ status: 200, description: 'Returns the file details' })
+  @ApiResponse({ status: 404, description: 'File not found' })
+  async getFileById(
+    @Req() req: AuthRequest,
+    @Body('pdfId') fileId: string,
+    @Res() response: Response,
+  ) {
+    if (!req.user) {
+      throw new Error('User not authenticated.');
+    }
+
+    if (!fileId) {
+      throw new BadRequestException("O campo 'pdfId' é obrigatório.");
+    }
+
+    const file = await this.uploadService.getFileById(fileId);
+    if (!file) {
+      throw new NotFoundException('File not found.');
+    }
+
+    if (file.mimetype !== 'application/pdf') {
+      return response.json(file);
+    }
+
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', 'inline');
+    response.send(file.content);
+    response.end();
+
+    return response.send(file.content);
+  }
+
+  @Delete()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Delete a chat by ID' })
+  @ApiResponse({ status: 204, description: 'Chat deleted successfully' })
+  @ApiResponse({ status: 400, description: 'chatId is required' })
+  @ApiResponse({ status: 404, description: 'Chat not found' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        chatId: { type: 'string', example: '12345' },
+      },
+      required: ['fileId'],
+    },
+  })
+  async deleteFile(@Body() body: { fileId: string }) {
+    console.log('Recebido para deletar arquivo:', body);
+  
+    if (!body || !body.fileId) {
+      throw new BadRequestException("O campo 'fileId' é obrigatório.");
+    }
+  
+    const deleted = await this.uploadService.deleteFile(body.fileId);
+  
+    if (!deleted) {
+      throw new NotFoundException(`Arquivo com ID ${body.fileId} não encontrado.`);
+    }
   }
 }

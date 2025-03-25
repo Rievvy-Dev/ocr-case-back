@@ -1,38 +1,27 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import * as pdfParse from 'pdf-parse';
-import { ChromaClient, IEmbeddingFunction } from 'chromadb';
-import { pipeline } from '@xenova/transformers';
+import { OpenAI } from 'openai';
 
 @Injectable()
 export class UploadService {
-  private chroma: ChromaClient;
-  private embedder: any;
-  private embeddingFunction: IEmbeddingFunction;
+  private openai: OpenAI;
 
   constructor(private prisma: PrismaService) {
-    this.chroma = new ChromaClient();
-    this.embedder = pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-
-    this.embeddingFunction = {
-      generate: async (texts: string[]) => {
-        const embeddings = await Promise.all(
-          texts.map(async (text) => {
-            const tensor = await this.embedder(text, { pooling: 'mean', normalize: true });
-            return Array.from(tensor.data as Float32Array);
-          })
-        );
-        return embeddings;
-      },
-    };
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
   }
 
   async saveFile(file: Express.Multer.File, userId: string) {
     let extractedText = '';
+    let summary = '';
 
     if (file.mimetype === 'application/pdf') {
       const pdfData = await pdfParse(file.buffer);
       extractedText = pdfData.text.trim();
+
+      summary = await this.generateSummary(extractedText);
     }
 
     const savedFile = await this.prisma.file.create({
@@ -52,30 +41,45 @@ export class UploadService {
       },
     });
 
-    if (extractedText) {
-      await this.indexFile(savedFile.id, extractedText);
-    }
+    await this.addMessageToChat(chat.id, 'system', summary);
 
     return { file: savedFile, chatId: chat.id };
   }
 
-  async indexFile(fileId: string, content: string) {
+  async generateSummary(text: string): Promise<string> {
     try {
-      const embedding = await this.embeddingFunction.generate([content]);
-
-      const collection = await this.chroma.getOrCreateCollection({
-        name: 'documents',
-        embeddingFunction: this.embeddingFunction, 
+      const response = await this.openai.chat.completions.create({
+        model: 'gpt-3.5-turbo',
+        messages: [
+          {
+            role: 'system',
+            content: 'Você é um assistente que resume textos.',
+          },
+          { role: 'user', content: `Resuma o seguinte texto: ${text}` },
+        ],
+        max_tokens: 150,
+        temperature: 0.7,
       });
 
-      await collection.add({
-        ids: [fileId],
-        embeddings: embedding,
-        metadatas: [{ fileId, content }],
-      });
+      const summary =
+        response.choices[0].message?.content ??
+        'Não foi possível gerar um resumo.';
+
+      return summary;
     } catch (error) {
-      console.error('Erro ao indexar o arquivo no ChromaDB:', error);
+      console.error('Erro ao gerar o resumo:', error);
+      return 'Erro ao gerar o resumo.';
     }
+  }
+
+  async addMessageToChat(chatId: string, sender: string, content: string) {
+    await this.prisma.message.create({
+      data: {
+        chatId,
+        sender,
+        content,
+      },
+    });
   }
 
   async listUserFiles(userId: string) {
@@ -89,5 +93,52 @@ export class UploadService {
         },
       },
     });
+  }
+
+  async getFileById(fileId: string) {
+    return this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: {
+        id: true,
+        filename: true,
+        mimetype: true,
+        content: true,
+        extractedText: true,
+        chat: {
+          select: { id: true },
+        },
+      },
+    });
+  }
+
+  async deleteFile(fileId: string): Promise<boolean> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      include: { chat: true }, // Inclui o chat relacionado
+    });
+
+    if (!file) {
+      console.error(`Arquivo com ID ${fileId} não encontrado.`);
+      return false;
+    }
+
+    if (file.chat) {
+      // Deletar mensagens do chat antes de remover o chat
+      await this.prisma.message.deleteMany({
+        where: { chatId: file.chat.id },
+      });
+
+      // Deletar o chat relacionado ao arquivo
+      await this.prisma.chat.delete({
+        where: { id: file.chat.id },
+      });
+    }
+
+    // Finalmente, deletar o arquivo
+    await this.prisma.file.delete({
+      where: { id: fileId },
+    });
+
+    return true;
   }
 }
