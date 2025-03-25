@@ -114,7 +114,7 @@ export class UploadService {
   async deleteFile(fileId: string): Promise<boolean> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
-      include: { chat: true }, // Inclui o chat relacionado
+      include: { chat: true }, 
     });
 
     if (!file) {
@@ -123,18 +123,15 @@ export class UploadService {
     }
 
     if (file.chat) {
-      // Deletar mensagens do chat antes de remover o chat
       await this.prisma.message.deleteMany({
         where: { chatId: file.chat.id },
       });
 
-      // Deletar o chat relacionado ao arquivo
       await this.prisma.chat.delete({
         where: { id: file.chat.id },
       });
     }
 
-    // Finalmente, deletar o arquivo
     await this.prisma.file.delete({
       where: { id: fileId },
     });

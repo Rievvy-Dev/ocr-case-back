@@ -21,16 +21,22 @@ export class ChatController {
         chatId: { type: 'string', example: '12345' },
         sender: { type: 'string', example: 'user' },
         message: { type: 'string', example: 'Olá, como você está?' },
+        fileId: { type: 'string', example: 'file-id-12345' },
       },
       required: ['chatId', 'sender', 'message'],
     },
   })
   async sendMessage(
-    @Body() body: { chatId: string; sender: string; message: string },
+    @Body() body: { chatId: string; sender: string; message: string; fileId?: string },
     @Req() req: AuthRequest
   ) {
     try {
-      return await this.chatService.sendMessage(body.chatId, body.sender, body.message);
+      return await this.chatService.sendMessage(
+        body.chatId,
+        body.sender,
+        body.message,
+        body.fileId
+      );
     } catch (error) {
       throw new NotFoundException(error.message);
     }

@@ -1,13 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
-import { HfInference } from '@huggingface/inference';
+import OpenAI from 'openai';
+import { ChatCompletionMessageParam } from 'openai/resources/chat';
 
 @Injectable()
 export class ChatService {
-  private hf: HfInference;
+  private openai: OpenAI;
 
   constructor(private prisma: PrismaService) {
-    this.hf = new HfInference(process.env.HF_API_KEY);
+    this.openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
   }
 
   async getMessages(chatId: string) {
@@ -36,7 +39,7 @@ export class ChatService {
       });
       finalChatId = chat.id;
     }
-
+    
     const userMessage = await this.prisma.message.create({
       data: {
         chatId: finalChatId,
@@ -45,13 +48,25 @@ export class ChatService {
       },
     });
 
-    const response = await this.hf.textGeneration({
-      model: 'mistralai/Mistral-7B-Instruct-v0.1',
-      inputs: content,
-      parameters: { max_new_tokens: 200, temperature: 0.7 },
+    const previousMessages = await this.prisma.message.findMany({
+      where: { chatId: finalChatId },
+      orderBy: { createdAt: 'asc' },
     });
 
-    const assistantMessage = response.generated_text || 'Não foi possível gerar uma resposta.';
+    const chatHistory: ChatCompletionMessageParam[] = previousMessages.map((msg) => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.content,
+    }));
+
+    chatHistory.push({ role: 'user', content });
+
+    const response = await this.openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      messages: chatHistory,
+      temperature: 0.7,
+    });
+
+    const assistantMessage = response.choices[0]?.message?.content || 'Não foi possível gerar uma resposta.';
 
     const chatGptMessage = await this.prisma.message.create({
       data: {
