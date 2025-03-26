@@ -9,8 +9,8 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.enableCors({
-    origin: "http://localhost:3000", 
-    credentials: true, 
+    origin: ['http://localhost:3000', 'https://ocr-case-front.vercel.app'],
+    credentials: true,
   });
 
   app.use(cookieParser());
@@ -21,7 +21,7 @@ async function bootstrap() {
     .setTitle('API Paggo OCR')
     .setDescription('Documentação da API Paggo OCR')
     .setVersion('1.0')
-    .addBearerAuth() 
+    .addBearerAuth()
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
