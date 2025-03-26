@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from 'prisma/prisma.service';
 import * as pdfParse from 'pdf-parse';
 import { OpenAI } from 'openai';
+import * as Tesseract from 'tesseract.js';
+import * as sharp from 'sharp'; 
 
 @Injectable()
 export class UploadService {
@@ -13,16 +15,23 @@ export class UploadService {
     });
   }
 
-  async saveFile(file: Express.Multer.File, userId: string) {
+  async saveFile(file: Express.Multer.File, userId: string, fileType: string) {
     let extractedText = '';
     let summary = '';
 
     if (file.mimetype === 'application/pdf') {
       const pdfData = await pdfParse(file.buffer);
       extractedText = pdfData.text.trim();
-
-      summary = await this.generateSummary(extractedText);
+    } else if (file.mimetype.startsWith('image/')) {
+      extractedText = await this.extractTextFromImage(
+        file.buffer,
+        file.mimetype,
+      );
+    } else {
+      throw new Error('Formato de arquivo não suportado.');
     }
+
+    summary = await this.generateSummary(extractedText);
 
     const savedFile = await this.prisma.file.create({
       data: {
@@ -36,9 +45,7 @@ export class UploadService {
     });
 
     const chat = await this.prisma.chat.create({
-      data: {
-        fileId: savedFile.id,
-      },
+      data: { fileId: savedFile.id },
     });
 
     await this.addMessageToChat(chat.id, 'system', summary);
@@ -46,7 +53,30 @@ export class UploadService {
     return { file: savedFile, chatId: chat.id };
   }
 
+  async extractTextFromImage(
+    imageBuffer: Buffer,
+    mimetype: string,
+  ): Promise<string> {
+    try {
+      const processedImage = await sharp(imageBuffer)
+        .toFormat('png') 
+        .resize(1000)
+        .grayscale() 
+        .toBuffer();
+
+      // Processar com Tesseract
+      const { data } = await Tesseract.recognize(processedImage, 'eng');
+
+      return data.text.trim();
+    } catch (error) {
+      console.error('Erro ao extrair texto da imagem:', error);
+      return 'Erro ao processar imagem.';
+    }
+  }
+
   async generateSummary(text: string): Promise<string> {
+    if (!text) return 'Nenhum texto extraído para resumir.';
+
     try {
       const response = await this.openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
@@ -61,11 +91,10 @@ export class UploadService {
         temperature: 0.7,
       });
 
-      const summary =
+      return (
         response.choices[0].message?.content ??
-        'Não foi possível gerar um resumo.';
-
-      return summary;
+        'Não foi possível gerar um resumo.'
+      );
     } catch (error) {
       console.error('Erro ao gerar o resumo:', error);
       return 'Erro ao gerar o resumo.';
@@ -114,7 +143,7 @@ export class UploadService {
   async deleteFile(fileId: string): Promise<boolean> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
-      include: { chat: true }, 
+      include: { chat: true },
     });
 
     if (!file) {

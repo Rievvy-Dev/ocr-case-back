@@ -36,7 +36,7 @@ export class UploadController {
   @Post()
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
-  @ApiOperation({ summary: 'Upload a file' })
+  @ApiOperation({ summary: 'Upload a file (PDF or image)' })
   @ApiConsumes('multipart/form-data')
   @ApiResponse({ status: 201, description: 'File uploaded successfully' })
   async uploadFile(
@@ -46,11 +46,24 @@ export class UploadController {
     if (!req.user) {
       throw new Error('User not authenticated.');
     }
+
+    const allowedMimeTypes = [
+      'application/pdf',
+      'image/png',
+      'image/jpeg',
+      'image/jpg',
+    ];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Formato de arquivo não suportado.');
+    }
+
+    const fileType = file.mimetype.startsWith('image/') ? 'image' : 'pdf';
     const userId = req.user.sub;
 
     const { file: savedFile, chatId } = await this.uploadService.saveFile(
       file,
       userId,
+      fileType,
     );
 
     return { fileId: savedFile.id, chatId };
@@ -120,15 +133,17 @@ export class UploadController {
   })
   async deleteFile(@Body() body: { fileId: string }) {
     console.log('Recebido para deletar arquivo:', body);
-  
+
     if (!body || !body.fileId) {
       throw new BadRequestException("O campo 'fileId' é obrigatório.");
     }
-  
+
     const deleted = await this.uploadService.deleteFile(body.fileId);
-  
+
     if (!deleted) {
-      throw new NotFoundException(`Arquivo com ID ${body.fileId} não encontrado.`);
+      throw new NotFoundException(
+        `Arquivo com ID ${body.fileId} não encontrado.`,
+      );
     }
   }
 }

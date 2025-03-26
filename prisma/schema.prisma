@@ -14,7 +14,7 @@ model File {
   size          Int
   content       Bytes    
   extractedText String?  
-  embedding Embedding?
+  type          String   @default("pdf")
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   chat          Chat?    
@@ -44,12 +44,4 @@ model User {
   password String
   name     String?  
   files    File[]  
-}
-
-model Embedding {
-  id        String   @id @default(uuid())
-  fileId    String   @unique
-  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  embedding String   
-  createdAt DateTime @default(now())
 }
